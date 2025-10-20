@@ -10,7 +10,7 @@ umask 022
 #   sudo bash install_wattradar.sh --repo owner/repo
 # Optional: export GITHUB_TOKEN=... (für höhere API-Limits/private Repos)
 
-APP_NAME="wattradar"
+APP_NAME="wattRadar"
 REPO="${REPO:-ehive-dev/wattRadar-releases}"  # per --repo überschreibbar
 CHANNEL="stable"    # stable | pre
 TAG="${TAG:-}"      # vX.Y.Z (mit v)
