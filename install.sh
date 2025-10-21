@@ -7,18 +7,22 @@ umask 022
 #   curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- [--pre|--stable] [--tag vX.Y.Z] [--repo owner/repo]
 #   sudo bash install.sh --pre | --stable | --tag vX.Y.Z | --repo owner/repo
 #
+# Vorgaben (case-sensitiv, bleibt immer so):
+APP_NAME="wattRadar"                 # Service- und App-Name exakt: wattRadar
+UNIT="wattRadar.service"             # fester Unit-Name
+UNIT_BASE="wattRadar"                # Verzeichnisnamen für State/Logs
+
 # Variablen (optional):
 #   REPO=ehive-dev/wattRadar-releases
-#   DPKG_PKG=wattRadar        # Name des Debian-Pakets (Default = APP_NAME)
+#   DPKG_PKG=wattRadar        # Debian-Paketname (Default = APP_NAME)
 #   PORT=3011                 # überschreibt Port in /etc/default/wattRadar
 #   HEALTH_PATH=/healthz
 
-APP_NAME="wattRadar"                                # Servicename und Standard-App-Name
-REPO="${REPO:-ehive-dev/wattRadar-releases}"        # per --repo überschreibbar
-CHANNEL="stable"                                     # stable | pre
-TAG="${TAG:-}"                                       # vX.Y.Z (mit v)
+REPO="${REPO:-ehive-dev/wattRadar-releases}"
+CHANNEL="stable"                     # stable | pre
+TAG="${TAG:-}"                       # vX.Y.Z (mit v)
 ARCH_REQ="arm64"
-DPKG_PKG="${DPKG_PKG:-$APP_NAME}"                    # Paketname (kann von APP_NAME abweichen)
+DPKG_PKG="${DPKG_PKG:-$APP_NAME}"
 
 # ---------- CLI-Args ----------
 while [[ $# -gt 0 ]]; do
@@ -55,7 +59,7 @@ need_tools(){
 }
 
 api(){
-  local url="$1"; shift || true
+  local url="$1"
   local hdr=(-H "Accept: application/vnd.github+json")
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     hdr+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
@@ -184,8 +188,8 @@ curl -fL --retry 3 --retry-delay 1 -o "$DEB_FILE" "$DEB_URL"
 
 dpkg-deb --info "$DEB_FILE" >/dev/null 2>&1 || { err "Ungültiges .deb"; exit 1; }
 
-if systemctl list-units --type=service | grep -q "^${APP_NAME}\.service"; then
-  systemctl stop "$APP_NAME" || true
+if systemctl list-units --type=service | grep -q "^${UNIT}\$"; then
+  systemctl stop "$UNIT_BASE" || true
 fi
 
 info "Installiere Paket ..."
@@ -208,18 +212,20 @@ if [[ ! -f /etc/default/${APP_NAME} ]]; then
   {
     echo "PORT=${PORT:-3011}"
     echo "# INFLUX_URL=http://localhost:8086"
-    echo "# UPDATE_LOG=/var/log/${APP_NAME}/update.log"
-    echo "# UPDATE_LOCK=/var/lib/${APP_NAME}/update.lock"
+    echo "# UPDATE_LOG=/var/log/${UNIT_BASE}/update.log"
+    echo "# UPDATE_LOCK=/var/lib/${UNIT_BASE}/update.lock"
     echo "HEALTH_PATH=${HEALTH_PATH:-/healthz}"
   } >>/etc/default/${APP_NAME}
 fi
 
-# 2) Service bereitstellen, falls nicht vorhanden
-UNIT_PATH="/etc/systemd/system/${APP_NAME}.service"
-if ! systemctl list-unit-files | grep -q "^${APP_NAME}\.service"; then
+# 2) Service bereitstellen, falls nicht vorhanden (genau wattRadar.service)
+UNIT_PATH="/etc/systemd/system/${UNIT}"
+if ! systemctl list-unit-files | grep -q "^${UNIT}\$"; then
   EXEC_BIN="$(detect_exec)"
+  WD_LINE=""
+  [[ -d "/opt/${APP_NAME}" ]] && WD_LINE="WorkingDirectory=/opt/${APP_NAME}"
   install -D -m 644 /dev/null "$UNIT_PATH"
-  cat >"$UNIT_PATH" <<UNIT
+  cat >"$UNIT_PATH" <<UNITFILE
 [Unit]
 Description=${APP_NAME}
 After=network.target
@@ -227,41 +233,41 @@ After=network.target
 [Service]
 User=root
 Group=root
-WorkingDirectory=/opt/${APP_NAME}
+${WD_LINE}
 EnvironmentFile=-/etc/default/${APP_NAME}
 ExecStart=${EXEC_BIN}
 Restart=on-failure
-StateDirectory=${APP_NAME}
-LogsDirectory=${APP_NAME}
+StateDirectory=${UNIT_BASE}
+LogsDirectory=${UNIT_BASE}
 # NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
-UNIT
+UNITFILE
 fi
 
 # 3) Drop-in sicherstellen (State/Logs auch wenn Unit aus Paket kommt)
-install -d -m 755 "/etc/systemd/system/${APP_NAME}.service.d"
-cat >"/etc/systemd/system/${APP_NAME}.service.d/10-paths.conf" <<UNIT
+install -d -m 755 "/etc/systemd/system/${UNIT}.d"
+cat >"/etc/systemd/system/${UNIT}.d/10-paths.conf" <<UNITDROP
 [Service]
-StateDirectory=${APP_NAME}
-LogsDirectory=${APP_NAME}
-UNIT
+StateDirectory=${UNIT_BASE}
+LogsDirectory=${UNIT_BASE}
+UNITDROP
 
 # 4) Aktivieren/Starten
 systemctl daemon-reload
-systemctl enable --now "${APP_NAME}" || true
-systemctl restart "${APP_NAME}" || true
+systemctl enable --now "${UNIT_BASE}" || true
+systemctl restart "${UNIT_BASE}" || true
 
 PORT="$(get_port)"
 H_PATH="$(get_health_path)"
 URL="http://127.0.0.1:${PORT}${H_PATH}"
 
 info "Warte auf Port :${PORT} ..."
-wait_port "$PORT" || { err "Port ${PORT} lauscht nicht."; journalctl -u "$APP_NAME" -n 200 --no-pager -o cat || true; exit 1; }
+wait_port "$PORT" || { err "Port ${PORT} lauscht nicht."; journalctl -u "${UNIT_BASE}" -n 200 --no-pager -o cat || true; exit 1; }
 
 info "Prüfe Health ${URL} ..."
-wait_health "$URL" || { err "Health-Check fehlgeschlagen."; journalctl -u "$APP_NAME" -n 200 --no-pager -o cat || true; exit 1; }
+wait_health "$URL" || { err "Health-Check fehlgeschlagen."; journalctl -u "${UNIT_BASE}" -n 200 --no-pager -o cat || true; exit 1; }
 
 NEW_VER="$(installed_version || echo "$VER_CLEAN")"
 ok "Fertig: ${APP_NAME} ${OLD_VER:+${OLD_VER} → }${NEW_VER} (healthy @ ${URL})"
