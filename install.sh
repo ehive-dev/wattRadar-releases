@@ -200,7 +200,7 @@ Restart=always
 RestartSec=3s
 StateDirectory=${UNIT_BASE}
 LogsDirectory=${UNIT_BASE}
-KillMode=mixed
+KillMode=process
 TimeoutStopSec=15s
 
 [Install]
