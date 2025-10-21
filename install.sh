@@ -4,17 +4,21 @@ umask 022
 
 # WattRadar Installer/Updater (DietPi / arm64)
 # Usage:
-#   sudo bash install_wattradar.sh                 # neueste STABLE
-#   sudo bash install_wattradar.sh --pre           # neueste PRE-RELEASE
-#   sudo bash install_wattradar.sh --tag v1.0.0    # bestimmte Version
-#   sudo bash install_wattradar.sh --repo owner/repo
-# Optional: export GITHUB_TOKEN=... (für höhere API-Limits/private Repos)
+#   curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- [--pre|--stable] [--tag vX.Y.Z] [--repo owner/repo]
+#   sudo bash install.sh --pre | --stable | --tag vX.Y.Z | --repo owner/repo
+#
+# Variablen (optional):
+#   REPO=ehive-dev/wattRadar-releases
+#   DPKG_PKG=wattRadar        # Name des Debian-Pakets (Default = APP_NAME)
+#   PORT=3011                 # überschreibt Port in /etc/default/wattRadar
+#   HEALTH_PATH=/healthz
 
-APP_NAME="wattRadar"
-REPO="${REPO:-ehive-dev/wattRadar-releases}"  # per --repo überschreibbar
-CHANNEL="stable"    # stable | pre
-TAG="${TAG:-}"      # vX.Y.Z (mit v)
+APP_NAME="wattRadar"                                # Servicename und Standard-App-Name
+REPO="${REPO:-ehive-dev/wattRadar-releases}"        # per --repo überschreibbar
+CHANNEL="stable"                                     # stable | pre
+TAG="${TAG:-}"                                       # vX.Y.Z (mit v)
 ARCH_REQ="arm64"
+DPKG_PKG="${DPKG_PKG:-$APP_NAME}"                    # Paketname (kann von APP_NAME abweichen)
 
 # ---------- CLI-Args ----------
 while [[ $# -gt 0 ]]; do
@@ -47,10 +51,11 @@ need_tools(){
   command -v curl >/dev/null || { apt-get update -y; apt-get install -y curl; }
   command -v jq   >/dev/null || { apt-get update -y; apt-get install -y jq; }
   command -v ss   >/dev/null 2>&1 || true
+  command -v systemctl >/dev/null || { err "systemd/systemctl erforderlich."; exit 1; }
 }
 
 api(){
-  local url="$1"
+  local url="$1"; shift || true
   local hdr=(-H "Accept: application/vnd.github+json")
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     hdr+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
@@ -84,23 +89,23 @@ pick_deb_from_release(){
   '
 }
 
-installed_version(){ dpkg-query -W -f='${Version}\n' "$APP_NAME" 2>/dev/null || true; }
+installed_version(){ dpkg-query -W -f='${Version}\n' "$DPKG_PKG" 2>/dev/null || true; }
 
 get_port(){
-  local p="3005"  # Default für WattRadar
+  local p="${PORT:-3011}"
   if [[ -r "/etc/default/${APP_NAME}" ]]; then
     # shellcheck disable=SC1091
     . "/etc/default/${APP_NAME}" || true
-    p="${PORT:-3005}"
+    p="${PORT:-$p}"
   fi
   echo "$p"
 }
 get_health_path(){
-  local hp="/healthz"
+  local hp="${HEALTH_PATH:-/healthz}"
   if [[ -r "/etc/default/${APP_NAME}" ]]; then
     # shellcheck disable=SC1091
     . "/etc/default/${APP_NAME}" || true
-    hp="${HEALTH_PATH:-/healthz}"
+    hp="${HEALTH_PATH:-$hp}"
   fi
   echo "$hp"
 }
@@ -108,13 +113,30 @@ get_health_path(){
 wait_port(){
   local port="$1"
   command -v ss >/dev/null 2>&1 || return 0
-  for i in {1..60}; do ss -ltn 2>/dev/null | grep -q ":${port} " && return 0; sleep 0.5; done
+  for _ in {1..60}; do ss -ltn 2>/dev/null | grep -q ":${port} " && return 0; sleep 0.5; done
   return 1
 }
 wait_health(){
   local url="$1"
-  for i in {1..30}; do curl -fsS "$url" >/dev/null && return 0; sleep 1; done
+  for _ in {1..30}; do curl -fsS "$url" >/dev/null && return 0; sleep 1; done
   return 1
+}
+
+detect_exec(){
+  # Ermittelt einen sinnvollen ExecStart
+  if command -v "$APP_NAME" >/dev/null 2>&1; then
+    command -v "$APP_NAME"
+  elif command -v wattradar >/dev/null 2>&1; then
+    command -v wattradar
+  elif command -v wattRadar >/dev/null 2>&1; then
+    command -v wattRadar
+  elif [[ -x "/opt/${APP_NAME}/bin/${APP_NAME}" ]]; then
+    echo "/opt/${APP_NAME}/bin/${APP_NAME}"
+  elif [[ -f "/opt/${APP_NAME}/app.js" ]]; then
+    echo "/usr/bin/node /opt/${APP_NAME}/app.js"
+  else
+    echo "/usr/bin/${APP_NAME}"
+  fi
 }
 
 # ---------- Start ----------
@@ -129,9 +151,9 @@ fi
 
 OLD_VER="$(installed_version || true)"
 if [[ -n "$OLD_VER" ]]; then
-  info "Installiert: ${APP_NAME} ${OLD_VER}"
+  info "Installiert: ${DPKG_PKG} ${OLD_VER}"
 else
-  info "Keine bestehende ${APP_NAME}-Installation gefunden."
+  info "Keine bestehende ${DPKG_PKG}-Installation gefunden."
 fi
 
 info "Ermittle Release aus ${REPO} (${CHANNEL}${TAG:+, tag=$TAG}) ..."
@@ -177,11 +199,59 @@ if [[ $RC -ne 0 ]]; then
   apt-get -f install -y
   dpkg -i "$DEB_FILE"
 fi
-ok "Installiert: ${APP_NAME} ${VER_CLEAN}"
+ok "Installiert: ${DPKG_PKG} ${VER_CLEAN}"
 
-systemctl daemon-reload || true
-systemctl enable "$APP_NAME" || true
-systemctl restart "$APP_NAME" || true
+### --- systemd: Service + Verzeichnisse automatisch ---
+# 1) /etc/default nur anlegen/ergänzen, wenn nicht vorhanden
+if [[ ! -f /etc/default/${APP_NAME} ]]; then
+  install -D -m 644 /dev/null /etc/default/${APP_NAME}
+  {
+    echo "PORT=${PORT:-3011}"
+    echo "# INFLUX_URL=http://localhost:8086"
+    echo "# UPDATE_LOG=/var/log/${APP_NAME}/update.log"
+    echo "# UPDATE_LOCK=/var/lib/${APP_NAME}/update.lock"
+    echo "HEALTH_PATH=${HEALTH_PATH:-/healthz}"
+  } >>/etc/default/${APP_NAME}
+fi
+
+# 2) Service bereitstellen, falls nicht vorhanden
+UNIT_PATH="/etc/systemd/system/${APP_NAME}.service"
+if ! systemctl list-unit-files | grep -q "^${APP_NAME}\.service"; then
+  EXEC_BIN="$(detect_exec)"
+  install -D -m 644 /dev/null "$UNIT_PATH"
+  cat >"$UNIT_PATH" <<UNIT
+[Unit]
+Description=${APP_NAME}
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/opt/${APP_NAME}
+EnvironmentFile=-/etc/default/${APP_NAME}
+ExecStart=${EXEC_BIN}
+Restart=on-failure
+StateDirectory=${APP_NAME}
+LogsDirectory=${APP_NAME}
+# NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+fi
+
+# 3) Drop-in sicherstellen (State/Logs auch wenn Unit aus Paket kommt)
+install -d -m 755 "/etc/systemd/system/${APP_NAME}.service.d"
+cat >"/etc/systemd/system/${APP_NAME}.service.d/10-paths.conf" <<UNIT
+[Service]
+StateDirectory=${APP_NAME}
+LogsDirectory=${APP_NAME}
+UNIT
+
+# 4) Aktivieren/Starten
+systemctl daemon-reload
+systemctl enable --now "${APP_NAME}" || true
+systemctl restart "${APP_NAME}" || true
 
 PORT="$(get_port)"
 H_PATH="$(get_health_path)"
