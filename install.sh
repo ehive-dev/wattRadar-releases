@@ -192,8 +192,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=admin
+Group=admin
 EnvironmentFile=-/etc/default/${APP_NAME}
 ExecStart=${EXEC_BIN}
 Restart=always
