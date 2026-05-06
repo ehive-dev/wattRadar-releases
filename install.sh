@@ -58,6 +58,10 @@ api(){
     gh api "${url#https://api.github.com/}"
     return
   fi
+  if command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1; then
+    gh api "${url#https://api.github.com/}"
+    return
+  fi
   local hdr=(-H "Accept: application/vnd.github+json")
   [[ -n "${GITHUB_TOKEN:-}" ]] && hdr+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
   curl -fsSL "${hdr[@]}" "$url"
@@ -101,11 +105,6 @@ wait_port(){
 }
 wait_health(){
   local url="$1"
-  if command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1; then
-    gh api "${url#https://api.github.com/}"
-    return
-  fi
-  for _ in {1..30}; do curl -fsS "$url" >/dev/null && return 0; sleep 1; done
   return 1
 }
 
