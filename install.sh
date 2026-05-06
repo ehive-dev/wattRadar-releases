@@ -52,12 +52,9 @@ need_tools(){
   command -v systemctl >/dev/null || { err "systemd/systemctl erforderlich."; exit 1; }
 }
 
+
 api(){
   local url="$1"
-  if command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1; then
-    gh api "${url#https://api.github.com/}"
-    return
-  fi
   if command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1; then
     gh api "${url#https://api.github.com/}"
     return
@@ -103,8 +100,13 @@ wait_port(){
   for _ in {1..60}; do ss -ltn 2>/dev/null | grep -q ":${port} " && return 0; sleep 0.5; done
   return 1
 }
+
 wait_health(){
   local url="$1"
+  for _ in {1..30}; do
+    curl -fsS "$url" >/dev/null && return 0
+    sleep 1
+  done
   return 1
 }
 
