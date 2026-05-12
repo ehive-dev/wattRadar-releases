@@ -1,16 +1,40 @@
-# wattRadar-releases
-Schnellstart
+# wattRadar Releases
 
-Pre-Release (Beta):
+Dieses Repository enthaelt oeffentliche Release-Pakete fuer wattRadar.
 
-curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- --pre
+## Schnellstart
 
+Stable installieren oder aktualisieren:
 
-Stable:
-
+```bash
 curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash
+```
 
+Pre-Release installieren:
 
-Bestimmte Version:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- --pre
+```
 
-curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- 
+Bestimmte Version installieren:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- --tag v0.4.1
+```
+
+## Service
+
+```bash
+systemctl status wattRadar --no-pager
+journalctl -u wattRadar -f
+```
+
+Health-Check lokal:
+
+```bash
+curl http://127.0.0.1:3011/healthz
+```
+
+## Lizenz
+
+Die Nutzung ist fuer private und nicht-kommerzielle Zwecke erlaubt. Kommerzielle Nutzung benoetigt eine vorherige schriftliche Zustimmung von ehive. Siehe `LICENSE.txt` und `THIRD_PARTY_NOTICES.txt`.
