@@ -14,7 +14,7 @@ UNIT_BASE="${APP_NAME}"        # Verzeichnisnamen für State/Logs
 
 # Optional:
 #   REPO=ehive-dev/wattRadar-releases
-#   DPKG_PKG=wattRadar
+#   DPKG_PKG=wattradar
 #   PORT=3011
 #   HEALTH_PATH=/healthz
 
@@ -22,7 +22,7 @@ REPO="${REPO:-ehive-dev/wattRadar-releases}"
 CHANNEL="stable"               # stable | pre
 TAG="${TAG:-}"
 ARCH_REQ="arm64"
-DPKG_PKG="${DPKG_PKG:-$APP_NAME}"
+DPKG_PKG="${DPKG_PKG:-wattradar}"
 
 # ---------- CLI-Args ----------
 while [[ $# -gt 0 ]]; do

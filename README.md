@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/i
 Bestimmte Version installieren:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- --tag v0.4.1
+curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- --tag v0.4.4
 ```
 
 ## Service
@@ -34,6 +34,14 @@ Health-Check lokal:
 ```bash
 curl http://127.0.0.1:3011/healthz
 ```
+
+## Version 0.4.4
+
+PV-, Batterie- und Batterie-SoC-Gesamtwerte werden nicht mehr mit den
+Einzelgeräten aus evcc gemittelt. Das korrigiert auch die daraus berechneten
+kWh-Kennzahlen und Energieflüsse. Bei fehlenden oder unvollständigen
+Gesamtwerten zeigt wattRadar einen Hinweis, statt unzuverlässige
+Aggregatwerte auszugeben.
 
 ## Lizenz
 
