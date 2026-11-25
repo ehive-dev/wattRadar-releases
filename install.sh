@@ -160,18 +160,20 @@ curl -fL --retry 3 --retry-delay 1 -o "$DEB_FILE" "$DEB_URL"
 dpkg-deb --info "$DEB_FILE" >/dev/null 2>&1 || { err "Ungültiges .deb"; exit 1; }
 
 # Service anhalten, egal ob aktiv
+# Check the SmartHub dependency before stopping the installed app.
+apt-get -s --no-remove --no-install-recommends install "$DEB_FILE" >/dev/null
 systemctl stop "$UNIT" || true
 
 info "Installiere Paket ..."
 set +e
-dpkg -i "$DEB_FILE"
+dpkg --force-confold -i "$DEB_FILE"
 RC=$?
 set -e
 if [[ $RC -ne 0 ]]; then
   warn "dpkg -i scheiterte — versuche apt --fix-broken"
   apt-get update -y
-  apt-get -f install -y
-  dpkg -i "$DEB_FILE"
+  apt-get --no-remove -f install -y
+  dpkg --force-confold -i "$DEB_FILE"
 fi
 ok "Installiert: ${DPKG_PKG} ${VER_CLEAN}"
 
@@ -190,7 +192,7 @@ fi
 
 # Unit-Datei bereitstellen, falls nicht vorhanden
 UNIT_PATH="/etc/systemd/system/${UNIT}"
-if ! systemctl list-unit-files | awk '{print $1}' | grep -qx "${UNIT}"; then
+if [[ ! -e "$UNIT_PATH" && ! -L "$UNIT_PATH" && ! -f "/lib/systemd/system/$UNIT" && ! -f "/usr/lib/systemd/system/$UNIT" ]]; then
   EXEC_BIN="$(detect_exec)"
   install -D -m 644 /dev/null "$UNIT_PATH"
   cat >"$UNIT_PATH" <<UNITFILE
